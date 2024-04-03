@@ -28,12 +28,22 @@ def remove_code_from_file(code):
 
 
 
-def open_door(data):
-    bus.write_byte(DEVICE_ADDR, data)
+def open_door(a):
+    bus.write_byte(DEVICE_ADDR, a)
+   
+# Call the condition() function to get error state and IR sensor state
+
+
 
 def condition():
-    b = bus.read_byte(DEVICE_ADDR)
-    return b
+    # Extract error states and IR sensor states for both boxes
+    received_byte = bus.read_byte(DEVICE_ADDR)
+    box1_error_state = received_byte // 1000
+    box1_ir_sensor_state = (received_byte % 1000) // 100
+    box2_error_state = (received_byte % 100) // 10
+    box2_ir_sensor_state = received_byte % 10
+   
+    return (box1_error_state, box1_ir_sensor_state), (box2_error_state, box2_ir_sensor_state)
 
 
 
@@ -44,7 +54,7 @@ def process_data():
    
     if entered_code == "":
         return jsonify({'message': 'No code was entered'})
-    
+   
     if entered_code == "0000":
         return jsonify({'message': 'Admin panel deactivated', 'hide_admin_panel': True})
 
@@ -56,20 +66,30 @@ def process_data():
             door_number = used_codes[entered_code]
             open_door(door_number)  # Open the door linked with the entered code
             time.sleep(1)
-            door_condition = condition()
-            if door_condition == 1:
-                return jsonify({'message': 'Door did not open'})
+           
+            # Retrieve error state and IR sensor state for the specified door
+            box1_data, box2_data = condition()
+           
+            # Process the retrieved data for the specified door
+            if door_number == 1:
+                error_state, ir_sensor_state = box1_data
+            else:
+                error_state, ir_sensor_state = box2_data
+           
+            if error_state == 1:
+                return jsonify({'message': f'Door {door_number} did not open'})
             timestamp = generate_timestamp()
             code_timestamps[entered_code] = timestamp
             time.sleep(8)
-            if door_condition == 2:                
-                return jsonify({'message': 'Door did not close again'})
-            elif door_condition == 0:
-                return jsonify({'message': 'Everything is OK'})
+            if error_state == 2:                
+                return jsonify({'message': f'Door {door_number} did not close again'})
+            elif error_state == 0:
+                return jsonify({'message': f'Everything is OK for Door {door_number}'})
     elif entered_code == "1337":
         return jsonify({'message': 'Admin panel activated', 'show_admin_panel': True})
     else:
         return jsonify({'message': 'Wrong code'})
+
 
 
 
@@ -92,7 +112,7 @@ def generate_new_code():
 
     while random_code in used_codes:
         random_code = str(random.randint(100000, 999999))
-        
+       
     save_used_codes(random_code, selected_door)  # Save the code and its linked door
     return jsonify({'message': 'New code generated', 'code': random_code, 'door': selected_door})
 
@@ -102,20 +122,52 @@ def generate_new_code():
 
 @app.route('/open_door', methods=['POST'])
 def open_door_route():
-    door_number = request.form['door_number']
-    open_door(int(door_number))
+    door_number = int(request.form['door_number'])
+    open_door(door_number)
     time.sleep(1)  # Add a delay to allow the door to open and close
-    door_condition = condition()
-    if door_condition == 1:
-        return jsonify({'message': 'Door ' + door_number + ' did not open'})
+   
+    # Retrieve error state and IR sensor state for the specified door
+    box1_data, box2_data = condition()
+   
+    # Process the retrieved data for the specified door
+    if door_number == 1:
+        error_state, _ = box1_data
+    else:
+        error_state, _ = box2_data
+   
+    if error_state == 1:
+        return jsonify({'message': 'Door ' + str(door_number) + ' did not open'})
+   
     time.sleep(10)
-    if door_condition == 2:
-        return jsonify({'message': 'Door ' + door_number + ' did not close again'})
-    elif door_condition == 0:
-        return jsonify({'message': 'Door ' + door_number + ' opened and closed successfully'})
-    
+    # Retrieve error state again after waiting for the door to close
+    box1_data, box2_data = condition()
+   
+    # Process the retrieved data for the specified door again
+    if door_number == 1:
+        error_state, _ = box1_data
+    else:
+        error_state, _ = box2_data
+   
+    if error_state == 2:
+        return jsonify({'message': 'Door ' + str(door_number) + ' did not close again'})
+    elif error_state == 0:
+        return jsonify({'message': 'Door ' + str(door_number) + ' opened and closed successfully'})
+
+
+# Define a route to provide sensor data
+@app.route('/get_sensor_data')
+def get_sensor_data():
+    # Call the condition() function to get sensor data
+    box1_data, box2_data = condition()
+    box1_ir_sensor_state = box1_data[1]
+    box2_ir_sensor_state = box2_data[1]
+   
+    # Return sensor data as JSON
+    return jsonify({'ir_sensor_state_1': box1_ir_sensor_state, 'ir_sensor_state_2': box2_ir_sensor_state})
+
+# Other routes and functions remain unchanged  
      
-        
+       
 
 # Load used codes from a file
 def load_used_codes():
@@ -156,7 +208,7 @@ def view_codes():
 
 
 
-    
+   
 used_codes = set()
 
 code_timestamps = {}
@@ -171,5 +223,4 @@ bus = smbus.SMBus(DEVICE_BUS)
 data = 1
 
 if __name__ == '__main__':
-    app.run(host='10.0.2.15', port=5000, debug=True)
-
+    app.run(host='172.20.10.3', port=5000, debug=True)
