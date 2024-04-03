@@ -33,8 +33,14 @@ def open_door(data):
     bus.write_byte(DEVICE_ADDR, data)
 
 def condition():
-    b = bus.read_byte(DEVICE_ADDR)
-    return b
+    # Extract error states and IR sensor states for both boxes
+    received_byte = bus.read_byte(DEVICE_ADDR)
+    box1_error_state = received_byte // 1000
+    box1_ir_sensor_state = (received_byte % 1000) // 100
+    box2_error_state = (received_byte % 100) // 10
+    box2_ir_sensor_state = received_byte % 10
+   
+    return (box1_error_state, box1_ir_sensor_state), (box2_error_state, box2_ir_sensor_state)
 
 #Sends the data in the textbox
 
@@ -53,9 +59,15 @@ def send_data():
         else:
             print("Processing code:", entered_code)
             door_number = used_codes[entered_code]
+            print("door nmber:", door_number)
             open_door(door_number)
             time.sleep(1)
-            door = condition()
+            box1_data, box2_data = condition()
+            # Process the retrieved data for the specified door
+            if door_number == 1:
+                door, ir_sensor_state = box1_data
+            else:
+                door, ir_sensor_state = box2_data
             if door == 1:
                 app.info("INFO", "     Uks ei lainud lahti, ime munni ja hakka nutma pede!     ")
                 return  # Exit function if door didn't open
@@ -198,4 +210,3 @@ picture = Picture(center_box, image = "logo.gif", grid = [1,6])
 
 app.full_screen = True
 app.display()
-
